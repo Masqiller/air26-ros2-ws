@@ -110,6 +110,20 @@
   <xacro:ultrasonic name="us_left"  px="0"            py="${ body_y/2}" pz="0" yaw="1.5708"/>
   <xacro:ultrasonic name="us_right" px="0"            py="${-body_y/2}" pz="0" yaw="-1.5708"/>
 
+  <!-- ===================== camera (ESP32-CAM), front-facing ===================== -->
+  <link name="camera_link">
+    <visual>
+      <geometry><box size="0.03 0.03 0.02"/></geometry>
+      <material name="black"/>
+    </visual>
+    <xacro:box_inertial mass="0.02" x="0.03" y="0.03" z="0.02"/>
+  </link>
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="${body_x/2} 0 ${body_z/2+0.03}" rpy="0 0 0"/>
+  </joint>
+
   <!-- ===================== labelled components ===================== -->
   <xacro:part name="battery" x="0.10" y="0.12" z="0.04" px="-0.05" py="0"     pz="${body_z/2+0.02}" material="bat_green"/>
   <xacro:part name="mcu"     x="0.06" y="0.06" z="0.02" px="0.06"  py="0.05"  pz="${body_z/2+0.01}" material="mcu_red"/>

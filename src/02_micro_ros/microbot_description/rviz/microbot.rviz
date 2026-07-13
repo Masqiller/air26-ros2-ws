@@ -35,6 +35,24 @@ Visualization Manager:
       Topic:
         Value: /ultrasonic/right
       Color: 80; 80; 255
+    - Class: rviz_default_plugins/Marker
+      Name: Camera Data
+      Enabled: true
+      Topic:
+        Value: /camera/viz
+    - Class: rviz_default_plugins/Image
+      Name: AprilTag Detections
+      Enabled: true
+      Topic:
+        Value: /apriltag/image
+    - Class: rviz_default_plugins/Odometry
+      Name: Wheel Odometry
+      Enabled: true
+      Topic:
+        Value: /odom
+      Keep: 100
+      Shape:
+        Value: Arrow
   Global Options:
     Background Color: 48; 48; 48
     Fixed Frame: odom

@@ -18,6 +18,7 @@ setup(
         (os.path.join('share', package_name, 'worlds'), glob('worlds/*')),
         (os.path.join('share', package_name, 'config'), glob('config/*')),
         (os.path.join('share', package_name, 'rviz'), glob('rviz/*')),
+        (os.path.join('share', package_name, 'launch'), glob('launch/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -26,5 +27,12 @@ setup(
     description='AIR26 workshop 02 micro-ROS obstacle-avoider robot description.',
     license='Apache-2.0',
     tests_require=['pytest'],
-    entry_points={'console_scripts': []},
+    entry_points={'console_scripts': [
+        'camera_viz = microbot_description.camera_viz:main',
+        'camera_stream = microbot_description.camera_stream:main',
+        'joint_states = microbot_description.joint_states:main',
+        'apriltag_detector = microbot_description.apriltag_detector:main',
+        'wheel_odometry = microbot_description.wheel_odometry:main',
+        'apriltag_follower = microbot_description.apriltag_follower:main',
+    ]},
 )

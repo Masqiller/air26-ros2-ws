@@ -25,3 +25,4 @@ __pycache__/
 
 # --- misc local files ---
 *.log
+MUJOCO_LOG.TXT
