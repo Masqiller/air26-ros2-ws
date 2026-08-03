@@ -7,7 +7,7 @@ Two things are tuned for THIS setup:
     640x480 USB cam. fx/fy are a rough estimate — see CALIBRATION note below.
   * detection runs on the grayscale QVGA MJPEG frames the board streams.
 
-Tag being tracked (from the reference): family tag25h9, ID 12, size 0.15 m.
+Tag being tracked: family tag25h9, ID 12, size 0.08 m (8 cm outer black border).
 """
 import cv2
 import numpy as np
@@ -17,7 +17,9 @@ from pupil_apriltags import Detector
 # ---- target tag ----
 TARGET_TAG_FAMILY = 'tag25h9'
 TARGET_TAG_ID = 12
-TARGET_TAG_SIZE = 0.15          # metres (15 cm)
+TARGET_TAG_SIZE = 0.08          # metres (8 cm) — outer black border; matches the printed tag
+                                # and the ROS follower's tag_size param. Was 0.15, which
+                                # overflowed the QVGA frame at close range.
 
 # ---- camera intrinsics (ESP32-CAM, QVGA 320x240) ----
 # cx/cy are the image centre for a 320x240 frame.
@@ -25,8 +27,10 @@ TARGET_TAG_SIZE = 0.15          # metres (15 cm)
 # Distance/angle are only as good as these numbers — run a proper cv2 checkerboard
 # calibration on the board and drop the real fx,fy,cx,cy here for accurate pose. Detection,
 # tag ID, centre and pixel size do NOT depend on them.
-FX = 250.0
-FY = 250.0
+# MEASURED on the ESP32-CAM (grayscale QVGA windows the sensor -> ~22 deg FOV, fx ~820).
+# The old 250 guess made every distance read 3.3x too small.
+FX = 820.0
+FY = 820.0
 CX = 160.0
 CY = 120.0
 

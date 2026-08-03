@@ -14,7 +14,7 @@ Params (defaults match the Platoon vehicle):
   wheel_radius 0.0325 m (65 mm wheel) | track_width 0.251 m
   left_wheel_joint  base_back_left_wheel_joint
   right_wheel_joint base_back_right_wheel_joint
-  odom_frame odom | base_frame base_link
+  odom_frame odom | base_frame base_footprint
 """
 import math
 
@@ -31,16 +31,20 @@ class WheelOdometry(Node):
         super().__init__('wheel_odometry')
         self.wheel_radius = self.declare_parameter('wheel_radius', 0.0325).value
         self.track_width = self.declare_parameter('track_width', 0.251).value
-        # the encoders count "up" when this vehicle drives BACKWARD, which made the robot
-        # crawl backward in RViz while driving forward. -1 flips it so forward reads forward
-        # (also keeps heading correct). Set 1.0 if you ever reflash encoders to count up on fwd.
-        self.encoder_direction = float(self.declare_parameter('encoder_direction', -1.0).value)
+        # The firmware now applies ENC_L_SIGN/ENC_R_SIGN itself, so /joint_states angles
+        # already INCREASE when the robot drives forward -> no flip needed here (+1).
+        # (This used to be -1 to correct raw backward-counting encoders. If you ever flash
+        # firmware that publishes raw ticks again, set this back to -1.)
+        self.encoder_direction = float(self.declare_parameter('encoder_direction', 1.0).value)
         self.left_joint = self.declare_parameter('left_wheel_joint',
                                                  'base_back_left_wheel_joint').value
         self.right_joint = self.declare_parameter('right_wheel_joint',
                                                   'base_back_right_wheel_joint').value
         self.odom_frame = self.declare_parameter('odom_frame', 'odom').value
-        self.base_frame = self.declare_parameter('base_frame', 'base_link').value
+        # drive base_footprint, NOT base_link: the URDF authors base_link rotated +90 deg
+        # yaw (CAD convention), so integrating into base_link would make the robot appear
+        # to drive sideways in RViz. base_footprint's +X is the real forward direction.
+        self.base_frame = self.declare_parameter('base_frame', 'base_footprint').value
 
         # pose + velocity state
         self.x = self.y = self.theta = 0.0

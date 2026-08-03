@@ -1,84 +1,174 @@
 <?xml version="1.0"?>
-<!-- AIR26 Workshop 02 (micro_ros) — the obstacle-avoider bot.
-     A small skid-steer rover: cuboid chassis (almost square), 4 driven wheels,
-     3 ultrasonic range sensors (front/left/right), and labelled motor / MCU /
-     battery cuboids so kids can point at "the parts". One model for RViz, Gazebo
-     and MuJoCo. Set use_gazebo:=true to add the Ignition DiffDrive + lidar tags. -->
+<!-- AIR26 — the real 2WD differential bot.
+     Ported from the raju_bot CAD model (https://github.com/Masqiller/raju_bot_ws):
+       * RAJU.stl chassis, 2 driven wheels, front caster ball, camera_link  (from raju_bot)
+     and extended for THIS robot's sensors:
+       * 3x HC-SR04 ultrasonic links: us_front / us_left / us_right         (added)
+       * camera optical frame + ESP32-CAM placement kept from the CAD       (added/kept)
+
+     Names are deliberately chosen to match the firmware and our nodes:
+       - wheel joints : base_back_left_wheel_joint / base_back_right_wheel_joint
+                        (exactly what the ESP32-S3 publishes on /joint_states, so the
+                         wheels really spin in RViz from the encoders)
+       - range frames : us_front / us_left / us_right
+                        (exactly the Range.header.frame_id the firmware sends, so the
+                         RViz Range cones resolve; each frame's +X points outward)
+       - camera frame : camera_link  (camera_viz paints its marker here)
+
+     FRAME LAYOUT — read before moving anything:
+     the CAD authors base_link rotated +90 deg yaw w.r.t. base_footprint, so in base_link
+     X is lateral (the wheel axis) and Y is longitudinal. base_footprint is the sane frame:
+     +X = forward, +Y = left. Therefore the odom chain is
+         odom -> base_footprint -> base_link
+     and wheel_odometry publishes odom->base_footprint (NOT base_link, which would make the
+     robot appear to drive sideways). Sensors we add hang off base_footprint for that reason.
+
+     Chassis extents (mesh, scaled to m): 0.233 wide (Y) x 0.180 long (X) x 0.143 tall. -->
 <robot name="microbot" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:arg name="use_gazebo" default="false"/>
+  <!-- ===================== materials ===================== -->
+  <material name="chassis_blue"><color rgba="0.20 0.35 0.75 1"/></material>
+  <material name="black">       <color rgba="0.05 0.05 0.05 1"/></material>
+  <material name="gray">        <color rgba="0.50 0.50 0.50 1"/></material>
+  <material name="us_blue">     <color rgba="0.10 0.40 0.95 1"/></material>
 
-  <!-- dimensions -->
-  <xacro:property name="body_x" value="0.30"/>
-  <xacro:property name="body_y" value="0.28"/>
-  <xacro:property name="body_z" value="0.10"/>
-  <xacro:property name="wheel_r" value="0.05"/>
-  <xacro:property name="wheel_w" value="0.04"/>
-  <xacro:property name="wheel_dx" value="0.11"/>   <!-- wheel x offset -->
-  <xacro:property name="wheel_dy" value="0.16"/>   <!-- wheel y offset (outside body) -->
+  <!-- ===================== geometry constants ===================== -->
+  <xacro:property name="wheel_radius" value="0.035"/>
+  <xacro:property name="wheel_length" value="0.02"/>
+  <!-- wheel centres in base_link: X = lateral (+X is LEFT once base_link's yaw is applied) -->
+  <xacro:property name="wheel_x" value="0.1165"/>   <!-- half track  -> separation 0.233 m -->
+  <xacro:property name="wheel_y" value="0.053"/>    <!-- longitudinal (behind the centre) -->
+  <xacro:property name="wheel_z" value="-0.037"/>
 
-  <!-- materials -->
-  <material name="charcoal"><color rgba="0.25 0.25 0.28 1"/></material>
-  <material name="black">   <color rgba="0.05 0.05 0.05 1"/></material>
-  <material name="us_blue">  <color rgba="0.1 0.4 0.95 1"/></material>
-  <material name="bat_green"><color rgba="0.1 0.7 0.25 1"/></material>
-  <material name="mcu_red">  <color rgba="0.85 0.1 0.1 1"/></material>
-  <material name="mot_orange"><color rgba="0.95 0.55 0.1 1"/></material>
+  <!-- ===================== ground-projection root ===================== -->
+  <link name="base_footprint"/>
 
-  <xacro:macro name="box_inertial" params="mass x y z">
+  <!-- ===================== chassis (CAD mesh) ===================== -->
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <!-- mesh authored in mm -> scale to metres -->
+        <mesh filename="file://$(find microbot_description)/meshes/RAJU.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="chassis_blue"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="file://$(find microbot_description)/meshes/RAJU.stl"
+              scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
     <inertial>
-      <mass value="${mass}"/>
-      <inertia ixx="${mass*(y*y+z*z)/12.0}" iyy="${mass*(x*x+z*z)/12.0}"
-               izz="${mass*(x*x+y*y)/12.0}" ixy="0" ixz="0" iyz="0"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="5.0"/>
+      <inertia ixx="0.05" ixy="0" ixz="0" iyy="0.05" iyz="0" izz="0.05"/>
     </inertial>
-  </xacro:macro>
+  </link>
 
-  <!-- labelled cuboid component (battery / mcu / motor) -->
-  <xacro:macro name="part" params="name x y z px py pz material">
-    <link name="${name}">
-      <visual>
-        <geometry><box size="${x} ${y} ${z}"/></geometry>
-        <material name="${material}"/>
-      </visual>
-      <xacro:box_inertial mass="0.1" x="${x}" y="${y}" z="${z}"/>
-    </link>
-    <joint name="${name}_joint" type="fixed">
-      <parent link="base_link"/>
-      <child link="${name}"/>
-      <origin xyz="${px} ${py} ${pz}"/>
-    </joint>
-  </xacro:macro>
+  <!-- the CAD's +90 deg yaw: base_link X becomes base_footprint Y -->
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.072" rpy="0 0 1.5708"/>
+  </joint>
 
-  <!-- driven wheel -->
-  <xacro:macro name="wheel" params="name px py">
-    <link name="${name}">
+  <!-- ===================== driven wheels ===================== -->
+  <!-- axis 1 0 0 = base_link X = base_footprint +Y (left), so a POSITIVE joint angle
+       rolls the robot FORWARD on both sides (standard diff-drive convention). -->
+  <xacro:macro name="drive_wheel" params="link joint px">
+    <link name="${link}">
       <visual>
-        <origin rpy="1.5708 0 0"/>
-        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <origin xyz="0 0 0" rpy="0 1.570796 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_length}"/></geometry>
         <material name="black"/>
       </visual>
       <collision>
-        <origin rpy="1.5708 0 0"/>
-        <geometry><cylinder radius="${wheel_r}" length="${wheel_w}"/></geometry>
+        <origin xyz="0 0 0" rpy="0 1.570796 0"/>
+        <geometry><cylinder radius="${wheel_radius}" length="${wheel_length}"/></geometry>
       </collision>
-      <xacro:box_inertial mass="0.2" x="${wheel_r}" y="${wheel_w}" z="${wheel_r}"/>
+      <inertial>
+        <mass value="0.5"/>
+        <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001"/>
+      </inertial>
     </link>
-    <joint name="${name}_joint" type="continuous">
+    <joint name="${joint}" type="continuous">
       <parent link="base_link"/>
-      <child link="${name}"/>
-      <origin xyz="${px} ${py} ${-body_z/2}"/>
-      <axis xyz="0 1 0"/>
+      <child link="${link}"/>
+      <origin xyz="${px} ${wheel_y} ${wheel_z}" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
     </joint>
   </xacro:macro>
 
-  <!-- ultrasonic sensor (small box + an outward-pointing frame named <name>_frame) -->
+  <!-- joint names must match the ESP32-S3 /joint_states publisher -->
+  <xacro:drive_wheel link="base_back_left_wheel"  joint="base_back_left_wheel_joint"
+                     px="${ wheel_x}"/>
+  <xacro:drive_wheel link="base_back_right_wheel" joint="base_back_right_wheel_joint"
+                     px="${-wheel_x}"/>
+
+  <!-- ===================== front caster ball ===================== -->
+  <link name="caster_wheel">
+    <visual>
+      <geometry><sphere radius="0.009"/></geometry>
+      <material name="gray"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.009"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.2"/>
+      <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+    </inertial>
+  </link>
+  <joint name="caster_wheel_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="caster_wheel"/>
+    <origin xyz="0 -0.045 -0.063" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ===================== ultrasonics (HC-SR04) =====================
+       Placed on the CAD's REAL sensor openings, not by eye. The chassis has three pairs
+       of 16 mm transducer holes (26.32 mm apart, i.e. +/-13.16 mm), measured from the
+       mesh in base_link/mm:
+         front wall (-Y, outer y=-90) : holes at X=+/-13.16, Z=13.91   -> us_front
+         left  wall (+X, outer x=+99) : holes at Y=-11.83/-38.15, Z=20 -> us_left
+         right wall (-X, outer x=-99) : holes at Y=-11.83/-38.15, Z=20 -> us_right
+       Each link is parented to base_link (the frame the mesh is authored in) so the
+       numbers are exactly the CAD's, and each frame's +X points OUT of its wall, which
+       is the direction the RViz Range cone follows:
+         us_front  +X = base_link -Y = base_footprint +X (forward)
+         us_left   +X = base_link +X = base_footprint +Y (left)
+         us_right  +X = base_link -X = base_footprint -Y (right)
+       The link origin sits on the OUTER wall surface, i.e. the real measuring face, so
+       reported ranges start at the sensor face. The two transducer cylinders are modelled
+       and poke through the two holes; the PCB sits inside the shell behind them. -->
+  <xacro:property name="us_pitch" value="0.01316"/>   <!-- half of the 26.32 mm hole spacing -->
+
   <xacro:macro name="ultrasonic" params="name px py pz yaw">
     <link name="${name}">
+      <!-- PCB, tucked inside the shell behind the wall -->
       <visual>
-        <geometry><box size="0.02 0.05 0.03"/></geometry>
+        <origin xyz="-0.012 0 0"/>
+        <geometry><box size="0.008 0.045 0.020"/></geometry>
         <material name="us_blue"/>
       </visual>
-      <xacro:box_inertial mass="0.02" x="0.02" y="0.05" z="0.03"/>
+      <!-- the two 16 mm transducers, seated in the two holes -->
+      <visual>
+        <origin xyz="-0.004 ${ us_pitch} 0" rpy="0 1.5708 0"/>
+        <geometry><cylinder radius="0.008" length="0.014"/></geometry>
+        <material name="us_blue"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.004 ${-us_pitch} 0" rpy="0 1.5708 0"/>
+        <geometry><cylinder radius="0.008" length="0.014"/></geometry>
+        <material name="us_blue"/>
+      </visual>
+      <inertial>
+        <mass value="0.02"/>
+        <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+      </inertial>
     </link>
     <joint name="${name}_joint" type="fixed">
       <parent link="base_link"/>
@@ -87,50 +177,50 @@
     </joint>
   </xacro:macro>
 
-  <!-- ===================== chassis ===================== -->
-  <link name="base_link">
-    <visual>
-      <geometry><box size="${body_x} ${body_y} ${body_z}"/></geometry>
-      <material name="charcoal"/>
-    </visual>
-    <collision>
-      <geometry><box size="${body_x} ${body_y} ${body_z}"/></geometry>
-    </collision>
-    <xacro:box_inertial mass="2.0" x="${body_x}" y="${body_y}" z="${body_z}"/>
-  </link>
+  <!-- front: on the -Y wall, so the sensor's +X must face -Y  -> yaw -90 deg -->
+  <xacro:ultrasonic name="us_front" px="0"      py="-0.090" pz="0.0139" yaw="-1.5708"/>
+  <!-- left: on the +X wall, sensor +X already faces +X       -> yaw 0 -->
+  <xacro:ultrasonic name="us_left"  px="0.099"  py="-0.025" pz="0.0200" yaw="0"/>
+  <!-- right: on the -X wall, sensor +X must face -X          -> yaw 180 deg -->
+  <xacro:ultrasonic name="us_right" px="-0.099" py="-0.025" pz="0.0200" yaw="3.14159"/>
 
-  <!-- ===================== wheels (all driven) ===================== -->
-  <xacro:wheel name="wheel_fl" px="${ wheel_dx}" py="${ wheel_dy}"/>
-  <xacro:wheel name="wheel_fr" px="${ wheel_dx}" py="${-wheel_dy}"/>
-  <xacro:wheel name="wheel_rl" px="${-wheel_dx}" py="${ wheel_dy}"/>
-  <xacro:wheel name="wheel_rr" px="${-wheel_dx}" py="${-wheel_dy}"/>
-
-  <!-- ===================== ultrasonics ===================== -->
-  <xacro:ultrasonic name="us_front" px="${ body_x/2}" py="0"            pz="0" yaw="0"/>
-  <xacro:ultrasonic name="us_left"  px="0"            py="${ body_y/2}" pz="0" yaw="1.5708"/>
-  <xacro:ultrasonic name="us_right" px="0"            py="${-body_y/2}" pz="0" yaw="-1.5708"/>
-
-  <!-- ===================== camera (ESP32-CAM), front-facing ===================== -->
+  <!-- ===================== ESP32-CAM =====================
+       The CAD has no camera window, so the camera goes where the module physically fits:
+       on the front wall, centred (base_link X=0) and below the front ultrasonic, at the
+       height raju_bot's own URDF used (base_link Z=-10.27 mm). Flush with the outer face
+       (y=-90) and looking forward: camera_link +X = base_link -Y = base_footprint +X. -->
   <link name="camera_link">
-    <visual>
-      <geometry><box size="0.03 0.03 0.02"/></geometry>
+    <visual>                                   <!-- module body, behind the wall -->
+      <origin xyz="-0.008 0 0"/>
+      <geometry><box size="0.010 0.027 0.027"/></geometry>
       <material name="black"/>
     </visual>
-    <xacro:box_inertial mass="0.02" x="0.03" y="0.03" z="0.02"/>
+    <visual>                                   <!-- lens barrel, through the wall -->
+      <origin xyz="-0.001 0 0" rpy="0 1.5708 0"/>
+      <geometry><cylinder radius="0.0055" length="0.008"/></geometry>
+      <material name="black"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.008 0 0"/>
+      <geometry><box size="0.010 0.027 0.027"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="0.05"/>
+      <inertia ixx="5.21e-7" ixy="0" ixz="0" iyy="2.08e-7" iyz="0" izz="5.21e-7"/>
+    </inertial>
   </link>
   <joint name="camera_joint" type="fixed">
     <parent link="base_link"/>
     <child link="camera_link"/>
-    <origin xyz="${body_x/2} 0 ${body_z/2+0.03}" rpy="0 0 0"/>
+    <origin xyz="0 -0.090 -0.01027" rpy="0 0 -1.5708"/>
   </joint>
 
-  <!-- ===================== labelled components ===================== -->
-  <xacro:part name="battery" x="0.10" y="0.12" z="0.04" px="-0.05" py="0"     pz="${body_z/2+0.02}" material="bat_green"/>
-  <xacro:part name="mcu"     x="0.06" y="0.06" z="0.02" px="0.06"  py="0.05"  pz="${body_z/2+0.01}" material="mcu_red"/>
-  <xacro:part name="motor"   x="0.05" y="0.05" z="0.04" px="0.08"  py="-0.06" pz="${body_z/2+0.02}" material="mot_orange"/>
-
-  <xacro:if value="$(arg use_gazebo)">
-    <xacro:include filename="$(find microbot_description)/urdf/microbot.gazebo.xacro"/>
-  </xacro:if>
+  <!-- optical frame (REP-103: Z forward, X right, Y down) for image geometry -->
+  <link name="camera_link_optical"/>
+  <joint name="camera_optical_joint" type="fixed">
+    <parent link="camera_link"/>
+    <child link="camera_link_optical"/>
+    <origin xyz="0 0 0" rpy="-1.5707963 0 -1.5707963"/>
+  </joint>
 
 </robot>

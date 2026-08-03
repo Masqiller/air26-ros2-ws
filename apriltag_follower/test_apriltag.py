@@ -3,7 +3,7 @@
 
 Same flow as Masqiller/AprilTag_Follower's test_apriltag.py, but the camera source is the
 ESP32-CAM MJPEG stream instead of a USB webcam. Detects the target tag (family tag25h9,
-id 12, 0.15 m), draws the overlay, and shows it live.
+id 12, 0.08 m), draws the overlay, and shows it live.
 
   cd ~/air26-ros2-ws/apriltag_follower
   python3 test_apriltag.py                          # uses http://192.168.0.117/stream

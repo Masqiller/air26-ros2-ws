@@ -40,15 +40,29 @@ class AprilTagFollower(Node):
     def __init__(self):
         super().__init__('apriltag_follower')
         self.tag_id = int(self.declare_parameter('tag_id', 12).value)
-        self.tag_size = float(self.declare_parameter('tag_size', 0.15).value)      # metres
-        self.fx = float(self.declare_parameter('fx', 250.0).value)                 # QVGA estimate
+        # Side length of the tag's OUTER BLACK BORDER in metres — this must match the tag
+        # you actually printed, because every distance below is derived from it. 8 cm suits
+        # QVGA + a 0.2 m hold distance: ~100 px at the hold point and ~167 px (70% of the
+        # 240 px frame height) at the closest approach, so it never overflows the frame.
+        # The old 15 cm tag hit 312 px when close -> off-frame -> "tag lost" -> vehicle stopped.
+        # Rule of thumb: tag side ~= 2/3 x (desired_distance - dist_band).
+        self.tag_size = float(self.declare_parameter('tag_size', 0.08).value)      # metres
+        # Pinhole focal length in pixels, MEASURED on this camera: a tag at a tape-measured
+        # 0.56 m gave side_px ~118 -> fx = 118 * 0.56 / 0.08 ~ 820. That is a ~22 deg
+        # horizontal FOV, so this ESP32-CAM windows the sensor for grayscale QVGA instead
+        # of downscaling. The textbook "~250 for QVGA" was 3.3x wrong.
+        # Re-check: hold the tag at a measured D, read d= on the overlay; fx := 820 * D / d.
+        self.fx = float(self.declare_parameter('fx', 820.0).value)
         families = self.declare_parameter('families', ['25h9', '36h11']).value
 
-        self.desired_distance = float(self.declare_parameter('desired_distance', 0.2).value)  # hold this close to the tag (smaller = follows in closer)
+        # Stop distance. With the measured fx=820 an 80 mm tag spans 65.6/d px, so at 0.45 m
+        # it is 146 px (61% of the 240 px frame height) and at the closest approach 0.37 m
+        # it is 177 px (74%) — still inside frame, so the tag is not lost by filling the view.
+        self.desired_distance = float(self.declare_parameter('desired_distance', 0.45).value)
         # --- speeds (m/s, rad/s): quicker again, still moderate ---
-        self.forward_speed = float(self.declare_parameter('forward_speed', 0.12).value)  # straight cruise
-        self.turn_cruise = float(self.declare_parameter('turn_cruise', 0.13).value)      # forward while arcing
-        self.reverse_speed = float(self.declare_parameter('reverse_speed', 0.08).value)  # ease back if too close
+        self.forward_speed = float(self.declare_parameter('forward_speed', 0.04).value)  # straight cruise
+        self.turn_cruise = float(self.declare_parameter('turn_cruise', 0.04).value)      # forward while arcing
+        self.reverse_speed = float(self.declare_parameter('reverse_speed', 0.03).value)  # ease back if too close
         self.max_turn = float(self.declare_parameter('max_turn', 0.0).value)             # rad/s; 0 = turning OFF (drive straight only), set >0 (e.g. 0.6) to re-enable arcs
         # mechanical trim: the drivetrain veers right on a "straight" command; a small
         # positive bias speeds the right wheel / slows the left -> nudges left to cancel it
@@ -85,6 +99,17 @@ class AprilTagFollower(Node):
             'apriltag_follower up: follow id=%d, desired=%.2f m, fwd=%.2f m/s, turning=%s'
             % (self.tag_id, self.desired_distance, self.forward_speed,
                'ON' if self.max_turn > 0.0 else 'OFF (straight only)'))
+        # geometry readout: if these pixel numbers look wrong for the tag you printed, the
+        # tag_size param is wrong and every distance will be biased by the same ratio.
+        closest = max(0.01, self.desired_distance - self.dist_band)
+        self.get_logger().info(
+            'tag %.0f cm @ fx=%.0f: ~%.0f px at the %.2f m hold, ~%.0f px at the %.2f m '
+            'closest approach, decode limit ~%.2f m'
+            % (self.tag_size * 100.0, self.fx,
+               self.tag_size * self.fx / max(self.desired_distance, 1e-3),
+               self.desired_distance,
+               self.tag_size * self.fx / closest, closest,
+               self.tag_size * self.fx / 27.0))
 
     def _now(self):
         return self.get_clock().now().nanoseconds / 1e9

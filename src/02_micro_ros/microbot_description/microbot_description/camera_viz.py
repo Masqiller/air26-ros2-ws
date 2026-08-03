@@ -47,12 +47,14 @@ class CameraViz(Node):
         cube.id = 0
         cube.type = Marker.CUBE
         cube.action = Marker.ADD
-        cube.pose.position.x = 0.08
-        cube.pose.position.z = 0.06
+        # small panel just above the lens; keep it bot-sized so it doesn't swamp
+        # the model in RViz (camera_link +X is the viewing direction)
+        cube.pose.position.x = 0.012
+        cube.pose.position.z = 0.045
         cube.pose.orientation.w = 1.0
-        cube.scale.x = 0.02
-        cube.scale.y = 0.10
-        cube.scale.z = 0.10
+        cube.scale.x = 0.006
+        cube.scale.y = 0.045
+        cube.scale.z = 0.030
         cube.color = self.color
         self.pub.publish(cube)
 
@@ -64,10 +66,10 @@ class CameraViz(Node):
         txt.id = 1
         txt.type = Marker.TEXT_VIEW_FACING
         txt.action = Marker.ADD
-        txt.pose.position.x = 0.08
-        txt.pose.position.z = 0.14
+        txt.pose.position.x = 0.012
+        txt.pose.position.z = 0.085
         txt.pose.orientation.w = 1.0
-        txt.scale.z = 0.04
+        txt.scale.z = 0.02
         txt.color = ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)
         txt.text = 'intensity {:.2f}'.format(self.intensity)
         self.pub.publish(txt)
